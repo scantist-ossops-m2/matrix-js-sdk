@@ -474,11 +474,17 @@ describe.each(Object.entries(CRYPTO_BACKENDS))("crypto (%s)", (backend: string, 
             // A promise which resolves, with the MatrixEvent which wraps the event, once the decryption fails.
             const awaitDecryption = emitPromise(aliceClient, MatrixEventEvent.Decrypted);
 
+            // Ensure that the timestamp post-dates the creation of our device
+            const encryptedEvent = {
+                ...testData.ENCRYPTED_EVENT,
+                origin_server_ts: Date.now(),
+            };
+
             const syncResponse = {
                 next_batch: 1,
                 rooms: {
                     join: {
-                        [testData.TEST_ROOM_ID]: { timeline: { events: [testData.ENCRYPTED_EVENT] } },
+                        [testData.TEST_ROOM_ID]: { timeline: { events: [encryptedEvent] } },
                     },
                 },
             };
@@ -498,12 +504,17 @@ describe.each(Object.entries(CRYPTO_BACKENDS))("crypto (%s)", (backend: string, 
 
             await aliceClient.getCrypto()!.importRoomKeys([testData.RATCHTED_MEGOLM_SESSION_DATA]);
 
-            // Alice gets both the events in a single sync
+            // Ensure that the timestamp post-dates the creation of our device
+            const encryptedEvent = {
+                ...testData.ENCRYPTED_EVENT,
+                origin_server_ts: Date.now(),
+            };
+
             const syncResponse = {
                 next_batch: 1,
                 rooms: {
                     join: {
-                        [testData.TEST_ROOM_ID]: { timeline: { events: [testData.ENCRYPTED_EVENT] } },
+                        [testData.TEST_ROOM_ID]: { timeline: { events: [encryptedEvent] } },
                     },
                 },
             };
@@ -513,6 +524,35 @@ describe.each(Object.entries(CRYPTO_BACKENDS))("crypto (%s)", (backend: string, 
 
             const ev = await awaitDecryption;
             expect(ev.decryptionFailureReason).toEqual(DecryptionFailureCode.OLM_UNKNOWN_MESSAGE_INDEX);
+        });
+
+        newBackendOnly("Decryption fails with Historical Event error", async () => {
+            expectAliceKeyQuery({ device_keys: { "@alice:localhost": {} }, failures: {} });
+            await startClientAndAwaitFirstSync();
+
+            // A promise which resolves, with the MatrixEvent which wraps the event, once the decryption fails.
+            const awaitDecryption = emitPromise(aliceClient, MatrixEventEvent.Decrypted);
+
+            // Ensure that the timestamp *pre*-dates the creation of our device: set it to 24 hours ago
+            const encryptedEvent = {
+                ...testData.ENCRYPTED_EVENT,
+                origin_server_ts: Date.now() - 24 * 3600 * 1000,
+            };
+
+            const syncResponse = {
+                next_batch: 1,
+                rooms: {
+                    join: {
+                        [testData.TEST_ROOM_ID]: { timeline: { events: [encryptedEvent] } },
+                    },
+                },
+            };
+
+            syncResponder.sendOrQueueSyncResponse(syncResponse);
+            await syncPromise(aliceClient);
+
+            const ev = await awaitDecryption;
+            expect(ev.decryptionFailureReason).toEqual(DecryptionFailureCode.HISTORICAL_MESSAGE);
         });
 
         it("Decryption fails with Unable to decrypt for other errors", async () => {

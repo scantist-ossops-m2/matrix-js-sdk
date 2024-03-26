@@ -506,6 +506,12 @@ export enum DecryptionFailureCode {
     /** Message was encrypted with a Megolm session which has been shared with us, but in a later ratchet state. */
     OLM_UNKNOWN_MESSAGE_INDEX = "OLM_UNKNOWN_MESSAGE_INDEX",
 
+    /**
+     * Message was sent before the current device was created, and key backup download is not configured; so this
+     * decryption failure is expected.
+     */
+    HISTORICAL_MESSAGE = "HISTORICAL_MESSAGE",
+
     /** Unknown or unclassified error. */
     UNKNOWN_ERROR = "UNKNOWN_ERROR",
 

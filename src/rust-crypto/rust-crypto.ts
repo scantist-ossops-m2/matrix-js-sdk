@@ -1698,6 +1698,7 @@ class EventDecryptor {
      */
     private onMegolmDecryptionError(event: MatrixEvent, err: RustSdkCryptoJs.MegolmDecryptionError): never {
         const content = event.getWireContent();
+        const errorDetails = { session: content.sender_key + "|" + content.session_id };
 
         // If the error looks like it might be recoverable from backup, queue up a request to try that.
         if (
@@ -1705,9 +1706,20 @@ class EventDecryptor {
             err.code === RustSdkCryptoJs.DecryptionErrorCode.UnknownMessageIndex
         ) {
             this.perSessionBackupDownloader.onDecryptionKeyMissingError(event.getRoomId()!, content.session_id!);
+
+            // If the event was sent before this device was created, and backup is not (yet) working, then a decryption
+            // failure is expected. Flag as such.
+            if (!this.perSessionBackupDownloader.isKeyBackupDownloadConfigured()) {
+                if (event.getTs() <= this.olmMachine.deviceCreationTimeMs) {
+                    throw new DecryptionError(
+                        DecryptionFailureCode.HISTORICAL_MESSAGE,
+                        "This message was sent before this device logged in, and key backup is not set up.",
+                        errorDetails,
+                    );
+                }
+            }
         }
 
-        const errorDetails = { session: content.sender_key + "|" + content.session_id };
         switch (err.code) {
             case RustSdkCryptoJs.DecryptionErrorCode.MissingRoomKey:
                 throw new DecryptionError(
